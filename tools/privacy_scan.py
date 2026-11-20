@@ -12,8 +12,10 @@ stay clean. Python stdlib only.
 
 False positive: put "privacy-scan: allow" on that line, or exclude the path in
 .privacy-scan.json: {"exclude": ["glob", "dir/**"], "allow_emails": ["a@b.c"],
-"disable": ["rule"]}. The same file is copied into every hkheria project;
-keep the copies identical (bump VERSION on change).
+"disable": ["rule"]}. Verification output under tests/verify/ (test plans, bug reports) is
+always scanned, even when an exclude covers tests/**: a bug report quotes what the tester
+saw. The same file is copied into every hkheria project; keep the copies identical (bump
+VERSION on change).
 """
 import fnmatch
 import json
@@ -22,10 +24,11 @@ import re
 import subprocess
 import sys
 
-VERSION = "1"
+VERSION = "2"
 ALLOW_MARK = "privacy-scan: allow"
 SELF = "tools/privacy_scan.py"
 ALWAYS_EXCLUDE = [SELF, ".privacy-scan.json", "package-lock.json", "*.min.js"]
+ALWAYS_SCAN = ["tests/verify/**"]   # STANDARDS.md rule 8: bug reports quote real output; no config can exclude them
 
 # Personal mailboxes are on consumer domains; institutional senders (bank alerts,
 # noreply addresses) are not personal data and stay allowed.
@@ -152,7 +155,11 @@ def _match(path, pattern):
 
 
 def excluded(path, cfg):
-    return any(_match(path, p) for p in ALWAYS_EXCLUDE + cfg["exclude"])
+    if any(_match(path, p) for p in ALWAYS_EXCLUDE):
+        return True
+    if any(_match(path, p) for p in ALWAYS_SCAN):
+        return False
+    return any(_match(path, p) for p in cfg["exclude"])
 
 
 def forbidden_file(path):
@@ -279,13 +286,19 @@ def self_test():
     for path, want in files:
         if forbidden_file(path) != want:
             failures.append(f"  file {path}: want forbidden={want}")
+    cfg = dict(default_config(), exclude=["tests/**"])
+    paths = [("tests/test_x.py", True), ("tests/verify/bugs/001-x.md", False), ("tests/verify/test-plan.md", False),
+             ("tools/privacy_scan.py", True)]
+    for path, want in paths:
+        if excluded(path, cfg) != want:
+            failures.append(f"  path {path}: want excluded={want}")
     diff = "+++ b/a.md\n@@ -1,0 +3,2 @@\n+clean\n+DKK 9,999 here\n"
     if list(parse_diff(diff))[1][:2] != ("a.md", 4):
         failures.append("  parse_diff line numbers")
     if failures:
         print("privacy_scan self-test FAILED:\n" + "\n".join(failures))
         return 1
-    print(f"privacy_scan self-test passed ({len(cases) + len(files) + 1} cases, v{VERSION})")
+    print(f"privacy_scan self-test passed ({len(cases) + len(files) + len(paths) + 1} cases, v{VERSION})")
     return 0
 
 
