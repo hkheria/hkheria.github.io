@@ -1,0 +1,33 @@
+name: Privacy scan
+
+# Blocks personal data and secrets in the lines a change adds (tools/privacy_scan.py).
+# Reports file:line and the rule only, never the matched value.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Scanner self-test
+        run: python3 tools/privacy_scan.py --self-test
+
+      - name: Scan added lines
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_SHA="$(git rev-parse --verify --quiet HEAD~1 || git hash-object -t tree /dev/null)"
+          fi
+          python3 tools/privacy_scan.py --base "$BASE_SHA"
